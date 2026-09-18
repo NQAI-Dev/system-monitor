@@ -160,6 +160,8 @@ def test_stats_aggregates_all_sections():
 
 
 def test_index_serves_html():
+    import warnings
+    warnings.filterwarnings("ignore", category=DeprecationWarning, module="starlette.testclient")
     from fastapi.testclient import TestClient
     client = TestClient(main.app)
     resp = client.get("/")

@@ -160,7 +160,7 @@ def test_stats_aggregates_all_sections():
 
 
 def test_index_serves_html():
-    from starlette.testclient import TestClient
+    from fastapi.testclient import TestClient
     client = TestClient(main.app)
     resp = client.get("/")
     assert resp.status_code == 200

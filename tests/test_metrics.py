@@ -3,15 +3,16 @@
 The live FastAPI app is exercised only via the helpers; psutil/os/subprocess
 are monkeypatched so the suite runs without touching real host state.
 """
+
 import os
 import sys
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import main  # noqa: E402
+import main
 
 
 def _fake_proc_uptime(text):
@@ -51,8 +52,10 @@ def test_get_disks_skips_permission_errors():
     fake_usage.used = 400
     fake_usage.free = 600
     fake_usage.percent = 40.0
-    with patch("main.psutil.disk_partitions", return_value=[fake_partition]), \
-         patch("main.psutil.disk_usage", return_value=fake_usage):
+    with (
+        patch("main.psutil.disk_partitions", return_value=[fake_partition]),
+        patch("main.psutil.disk_usage", return_value=fake_usage),
+    ):
         out = main.get_disks()
     assert len(out) == 1
     assert out[0]["device"] == "/dev/sda1"
@@ -62,8 +65,10 @@ def test_get_disks_skips_permission_errors():
 def test_get_disks_swallows_permissionerror():
     bad = MagicMock()
     bad.mountpoint = "/secret"
-    with patch("main.psutil.disk_partitions", return_value=[bad]), \
-         patch("main.psutil.disk_usage", side_effect=PermissionError):
+    with (
+        patch("main.psutil.disk_partitions", return_value=[bad]),
+        patch("main.psutil.disk_usage", side_effect=PermissionError),
+    ):
         out = main.get_disks()
     assert out == []
 
@@ -78,24 +83,30 @@ def test_get_network_extracts_ipv4_and_counters():
     counters = MagicMock()
     counters.bytes_sent = 1234
     counters.bytes_recv = 5678
-    with patch("main.psutil.net_if_addrs", return_value={"eth0": [addr_v4, addr_v6]}), \
-         patch("main.psutil.net_io_counters", return_value={"eth0": counters}):
+    with (
+        patch("main.psutil.net_if_addrs", return_value={"eth0": [addr_v4, addr_v6]}),
+        patch("main.psutil.net_io_counters", return_value={"eth0": counters}),
+    ):
         out = main.get_network()
-    assert out == [{
-        "interface": "eth0",
-        "ipv4": "10.0.0.1",
-        "ipv6": "fe80::1",
-        "bytes_sent": 1234,
-        "bytes_recv": 5678,
-    }]
+    assert out == [
+        {
+            "interface": "eth0",
+            "ipv4": "10.0.0.1",
+            "ipv6": "fe80::1",
+            "bytes_sent": 1234,
+            "bytes_recv": 5678,
+        }
+    ]
 
 
 def test_get_network_zero_counters_when_missing():
     addr = MagicMock()
     addr.family.name = "AF_INET"
     addr.address = "127.0.0.1"
-    with patch("main.psutil.net_if_addrs", return_value={"lo": [addr]}), \
-         patch("main.psutil.net_io_counters", return_value={}):
+    with (
+        patch("main.psutil.net_if_addrs", return_value={"lo": [addr]}),
+        patch("main.psutil.net_io_counters", return_value={}),
+    ):
         out = main.get_network()
     assert out[0]["bytes_sent"] == 0
     assert out[0]["bytes_recv"] == 0
@@ -128,24 +139,36 @@ def test_get_services_skips_short_lines():
 
 
 def test_get_services_returns_error_marker_on_failure():
-    with patch("main.subprocess.check_output", side_effect=FileNotFoundError("no systemctl")):
+    with patch(
+        "main.subprocess.check_output", side_effect=FileNotFoundError("no systemctl")
+    ):
         out = main.get_services()
-    assert out == [{"unit": "error", "load": "", "active": "", "sub": "", "description": "no systemctl"}]
+    assert out == [
+        {
+            "unit": "error",
+            "load": "",
+            "active": "",
+            "sub": "",
+            "description": "no systemctl",
+        }
+    ]
 
 
 def test_stats_aggregates_all_sections():
     fake_vm = MagicMock(total=1000, available=600, used=400, percent=40.0)
     fake_sw = MagicMock(total=500, used=100, free=400, percent=20.0)
-    with patch("main.psutil.virtual_memory", return_value=fake_vm), \
-         patch("main.psutil.swap_memory", return_value=fake_sw), \
-         patch("main.psutil.cpu_percent", return_value=12.5), \
-         patch("main.psutil.cpu_count", side_effect=[4, 8]), \
-         patch("main.os.getloadavg", return_value=(0.1, 0.2, 0.3)), \
-         patch("main.get_disks", return_value=[{"device": "/dev/sda1"}]), \
-         patch("main.get_uptime", return_value={"days": 0, "hours": 0}), \
-         patch("main.get_network", return_value=[{"interface": "lo"}]), \
-         patch("main.get_services", return_value=[{"unit": "x"}]), \
-         patch("main.time.time", return_value=1700000000.0):
+    with (
+        patch("main.psutil.virtual_memory", return_value=fake_vm),
+        patch("main.psutil.swap_memory", return_value=fake_sw),
+        patch("main.psutil.cpu_percent", return_value=12.5),
+        patch("main.psutil.cpu_count", side_effect=[4, 8]),
+        patch("main.os.getloadavg", return_value=(0.1, 0.2, 0.3)),
+        patch("main.get_disks", return_value=[{"device": "/dev/sda1"}]),
+        patch("main.get_uptime", return_value={"days": 0, "hours": 0}),
+        patch("main.get_network", return_value=[{"interface": "lo"}]),
+        patch("main.get_services", return_value=[{"unit": "x"}]),
+        patch("main.time.time", return_value=1700000000.0),
+    ):
         out = main.stats()
     assert out["timestamp"] == 1700000000.0
     assert out["cpu"]["percent"] == 12.5
@@ -161,8 +184,12 @@ def test_stats_aggregates_all_sections():
 
 def test_index_serves_html():
     import warnings
-    warnings.filterwarnings("ignore", category=DeprecationWarning, module="starlette.testclient")
+
+    warnings.filterwarnings(
+        "ignore", category=DeprecationWarning, module="starlette.testclient"
+    )
     from fastapi.testclient import TestClient
+
     client = TestClient(main.app)
     resp = client.get("/")
     assert resp.status_code == 200

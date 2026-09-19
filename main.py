@@ -1,6 +1,7 @@
 import os
 import subprocess
 import time
+
 import psutil
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
@@ -15,7 +16,13 @@ def get_uptime():
     hours = int((seconds % 86400) // 3600)
     minutes = int((seconds % 3600) // 60)
     secs = int(seconds % 60)
-    return {"total_seconds": seconds, "days": days, "hours": hours, "minutes": minutes, "seconds": secs}
+    return {
+        "total_seconds": seconds,
+        "days": days,
+        "hours": hours,
+        "minutes": minutes,
+        "seconds": secs,
+    }
 
 
 def get_disks():
@@ -23,15 +30,17 @@ def get_disks():
     for p in psutil.disk_partitions(all=False):
         try:
             usage = psutil.disk_usage(p.mountpoint)
-            disks.append({
-                "device": p.device,
-                "mountpoint": p.mountpoint,
-                "fstype": p.fstype,
-                "total": usage.total,
-                "used": usage.used,
-                "free": usage.free,
-                "percent": usage.percent,
-            })
+            disks.append(
+                {
+                    "device": p.device,
+                    "mountpoint": p.mountpoint,
+                    "fstype": p.fstype,
+                    "total": usage.total,
+                    "used": usage.used,
+                    "free": usage.free,
+                    "percent": usage.percent,
+                }
+            )
         except PermissionError:
             pass
     return disks
@@ -45,13 +54,15 @@ def get_network():
         ipv4 = next((a.address for a in addr_list if a.family.name == "AF_INET"), None)
         ipv6 = next((a.address for a in addr_list if a.family.name == "AF_INET6"), None)
         c = counters.get(iface)
-        result.append({
-            "interface": iface,
-            "ipv4": ipv4,
-            "ipv6": ipv6,
-            "bytes_sent": c.bytes_sent if c else 0,
-            "bytes_recv": c.bytes_recv if c else 0,
-        })
+        result.append(
+            {
+                "interface": iface,
+                "ipv4": ipv4,
+                "ipv6": ipv6,
+                "bytes_sent": c.bytes_sent if c else 0,
+                "bytes_recv": c.bytes_recv if c else 0,
+            }
+        )
     return result
 
 
@@ -59,22 +70,33 @@ def get_services():
     try:
         out = subprocess.check_output(
             ["systemctl", "list-units", "--type=service", "--no-pager", "--no-legend"],
-            text=True, timeout=5
+            text=True,
+            timeout=5,
         )
         services = []
         for line in out.strip().splitlines():
             parts = line.split()
             if len(parts) >= 4:
-                services.append({
-                    "unit": parts[0],
-                    "load": parts[1],
-                    "active": parts[2],
-                    "sub": parts[3],
-                    "description": " ".join(parts[4:]),
-                })
+                services.append(
+                    {
+                        "unit": parts[0],
+                        "load": parts[1],
+                        "active": parts[2],
+                        "sub": parts[3],
+                        "description": " ".join(parts[4:]),
+                    }
+                )
         return services
-    except Exception as e:
-        return [{"unit": "error", "load": "", "active": "", "sub": "", "description": str(e)}]
+    except Exception as e:  # noqa: BLE001
+        return [
+            {
+                "unit": "error",
+                "load": "",
+                "active": "",
+                "sub": "",
+                "description": str(e),
+            }
+        ]
 
 
 @app.get("/api/stats")

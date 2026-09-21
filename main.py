@@ -10,8 +10,12 @@ app = FastAPI()
 
 
 def get_uptime():
-    with open("/proc/uptime") as f:
-        seconds = float(f.read().split()[0])
+    try:
+        with open("/proc/uptime") as f:
+            seconds = float(f.read().split()[0])
+    except (OSError, IndexError, ValueError):
+        # /proc may be unavailable in containers or non-Linux environments.
+        seconds = max(0.0, time.time() - psutil.boot_time())
     days = int(seconds // 86400)
     hours = int((seconds % 86400) // 3600)
     minutes = int((seconds % 3600) // 60)

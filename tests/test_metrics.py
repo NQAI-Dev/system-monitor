@@ -42,6 +42,18 @@ def test_get_uptime_handles_subsecond():
     assert out["total_seconds"] == pytest.approx(0.5)
 
 
+def test_get_uptime_falls_back_when_proc_is_unavailable():
+    with (
+        patch("builtins.open", side_effect=OSError("proc unavailable")),
+        patch("main.time.time", return_value=1_700_000_100.0),
+        patch("main.psutil.boot_time", return_value=1_700_000_000.0),
+    ):
+        out = main.get_uptime()
+    assert out["total_seconds"] == pytest.approx(100.0)
+    assert out["minutes"] == 1
+    assert out["seconds"] == 40
+
+
 def test_get_disks_skips_permission_errors():
     fake_partition = MagicMock()
     fake_partition.device = "/dev/sda1"

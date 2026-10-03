@@ -85,6 +85,15 @@ def test_get_disks_swallows_permissionerror():
     assert out == []
 
 
+def test_get_disks_skips_mounts_that_disappear_during_collection():
+    partition = MagicMock(mountpoint="/removable")
+    with (
+        patch("main.psutil.disk_partitions", return_value=[partition]),
+        patch("main.psutil.disk_usage", side_effect=FileNotFoundError),
+    ):
+        assert main.get_disks() == []
+
+
 def test_get_network_extracts_ipv4_and_counters():
     addr_v4 = MagicMock()
     addr_v4.family.name = "AF_INET"

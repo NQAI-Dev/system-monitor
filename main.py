@@ -45,7 +45,7 @@ def get_disks():
                     "percent": usage.percent,
                 }
             )
-        except PermissionError:
+        except (PermissionError, FileNotFoundError):
             pass
     return disks
 

@@ -1,10 +1,14 @@
+import asyncio
+import json
 import os
+import re
+import secrets
 import subprocess
 import time
 
 import psutil
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi import Body, FastAPI, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse
 
 app = FastAPI()
 
@@ -171,6 +175,7 @@ HTML = """<!DOCTYPE html>
 </style>
 </head>
 <body>
+<nav style="display:flex;gap:18px;margin-bottom:24px"><a href="/" style="color:#7eb8f7">System Monitor</a><a href="/status" style="color:#7eb8f7">Server status</a></nav>
 <h1>⚡ System Monitor</h1>
 <div class="subtitle">Live metrics · auto-refresh every 3s</div>
 <div class="grid">
@@ -249,3 +254,166 @@ setInterval(refresh, 3000);
 @app.get("/", response_class=HTMLResponse)
 def index():
     return HTML
+
+
+STATUS_HTML = """<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Server status · System Monitor</title><meta name="referrer" content="no-referrer"><style>
+*{box-sizing:border-box}body{margin:0;background:#0f0f1a;color:#e0e0e0;font:15px/1.5 system-ui,sans-serif;padding:24px}
+main{max-width:780px;margin:auto}nav{display:flex;gap:18px;margin-bottom:28px}a{color:#7eb8f7;text-decoration:none}a:hover{text-decoration:underline}
+h1{font-size:1.65em;margin:0 0 6px;color:#fff}.sub{color:#888;margin-bottom:22px}
+.summary,.server{background:#1a1a2e;border:1px solid #2a2a4a;border-radius:12px;padding:18px;margin-bottom:12px}
+.summary{display:flex;align-items:center;gap:12px}.server{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.name{font-weight:650}.detail{color:#888;font-size:.86em}.state{display:flex;align-items:center;gap:8px;white-space:nowrap}
+.dot{width:9px;height:9px;border-radius:50%;background:#777}.up .dot{background:#34d399;box-shadow:0 0 10px #34d399}.down .dot{background:#f87171;box-shadow:0 0 10px #f87171}
+.up .label{color:#34d399}.down .label{color:#f87171}.empty,#updated{color:#888}.empty{padding:24px;text-align:center}
+@media(max-width:520px){body{padding:16px}.server{align-items:flex-start;flex-direction:column}.summary{align-items:flex-start}}
+</style></head><body><main><nav><a href="/">← System Monitor</a></nav>
+<h1 id="page-title">Server status</h1><div class="sub">Доступность серверов по ICMP ping. Адреса проверяемых серверов не публикуются.</div>
+<section id="summary" class="summary" aria-live="polite">Загружаю статус…</section><section id="servers"></section><div id="updated"></div>
+</main><script>
+async function refresh(){const summary=document.getElementById('summary'),list=document.getElementById('servers');
+const token=location.hash.slice(1);
+if(!token){summary.textContent='Для просмотра используйте полную приватную ссылку.';list.innerHTML='';document.getElementById('updated').textContent='';return;}
+try{const r=await fetch('/api/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})});if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();
+document.getElementById('page-title').textContent=d.name+' · Server status';
+if(!d.servers.length){summary.textContent='Нет настроенных серверов';list.innerHTML='';return;}
+const down=d.servers.filter(s=>s.status!=='online').length;
+summary.innerHTML=`<strong>${down?`${down} сервер(ов) недоступно`:'Все системы работают'}</strong>`;
+list.innerHTML=d.servers.map(s=>`<article class="server"><div><div class="name">${escapeHtml(s.name)}</div><div class="detail">${s.latency_ms===null?'Нет ответа':`Ответ за ${s.latency_ms} мс`}</div></div><div class="state ${s.status==='online'?'up':'down'}"><span class="dot"></span><span class="label">${s.status==='online'?'Доступен':'Недоступен'}</span></div></article>`).join('');
+document.getElementById('updated').textContent='Обновлено: '+new Date(d.timestamp*1000).toLocaleTimeString();
+}catch(e){summary.textContent='Ссылка недействительна или статусы недоступны';list.innerHTML='';document.getElementById('updated').textContent='';}}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+window.addEventListener('hashchange',refresh);refresh();setInterval(refresh,30000);
+</script></main></body></html>"""
+
+
+def parse_status_targets(targets):
+    """Validate a private page's configured targets."""
+    if not isinstance(targets, list):
+        raise HTTPException(
+            status_code=500, detail="Each status page targets value must be a list"
+        )
+    result = []
+    for item in targets:
+        if (
+            not isinstance(item, dict)
+            or not isinstance(item.get("name"), str)
+            or not isinstance(item.get("host"), str)
+        ):
+            raise HTTPException(
+                status_code=500, detail="Each status target needs a name and host"
+            )
+        name, host = item["name"].strip(), item["host"].strip()
+        if (
+            not name
+            or not host
+            or len(name) > 80
+            or not re.fullmatch(r"[A-Za-z0-9.-]+", host)
+        ):
+            raise HTTPException(
+                status_code=500, detail="Invalid status target name or host"
+            )
+        result.append((name, host))
+    return result
+
+
+def get_status_pages():
+    """Load operator-configured private status pages."""
+    try:
+        pages = json.loads(os.getenv("STATUS_PAGES", "[]"))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=500, detail="Invalid STATUS_PAGES configuration"
+        ) from exc
+    if not isinstance(pages, list):
+        raise HTTPException(
+            status_code=500, detail="STATUS_PAGES must be a JSON list"
+        )
+    result, seen_tokens = [], set()
+    for item in pages:
+        if (
+            not isinstance(item, dict)
+            or not isinstance(item.get("name"), str)
+            or not isinstance(item.get("token"), str)
+        ):
+            raise HTTPException(
+                status_code=500, detail="Each status page needs a name, token and targets"
+            )
+        name, token = item["name"].strip(), item["token"]
+        if not name or len(name) > 80:
+            raise HTTPException(
+                status_code=500, detail="Invalid status page name"
+            )
+        if not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", token):
+            raise HTTPException(
+                status_code=500, detail="Status page tokens must be URL-safe and at least 32 characters"
+            )
+        if token in seen_tokens:
+            raise HTTPException(status_code=500, detail="Status page tokens must be unique")
+        seen_tokens.add(token)
+        result.append({"name": name, "token": token,
+                       "targets": parse_status_targets(item.get("targets"))})
+    return result
+
+
+async def ping_host(host):
+    proc = None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ping",
+            "-n",
+            "-c",
+            "1",
+            "-W",
+            "2",
+            host,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=3)
+        if proc.returncode != 0:
+            return None
+        match = re.search(rb"time[=<]([0-9.]+)\s*ms", stdout)
+        return round(float(match.group(1))) if match else None
+    except (TimeoutError, OSError):
+        if proc is not None and proc.returncode is None:
+            proc.kill()
+            await proc.wait()
+        return None
+
+
+@app.get("/status", response_class=HTMLResponse)
+def status_page():
+    return HTMLResponse(STATUS_HTML, headers={
+        "Cache-Control": "no-store",
+        "Referrer-Policy": "no-referrer",
+        "X-Robots-Tag": "noindex, nofollow",
+    })
+
+
+@app.post("/api/status")
+async def status_api(payload: dict = Body(...)):
+    token = payload.get("token")
+    if not isinstance(token, str) or not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", token):
+        raise HTTPException(status_code=404, detail="Status page not found")
+    page = None
+    for candidate in get_status_pages():
+        if secrets.compare_digest(candidate["token"], token):
+            page = candidate
+    if page is None:
+        raise HTTPException(status_code=404, detail="Status page not found")
+    targets = page["targets"]
+    latencies = await asyncio.gather(*(ping_host(host) for _, host in targets))
+    return JSONResponse(content={
+        "name": page["name"],
+        "timestamp": time.time(),
+        "servers": [
+            {
+                "name": name,
+                "status": "online" if latency is not None else "offline",
+                "latency_ms": latency,
+            }
+            for (name, _), latency in zip(targets, latencies)
+        ],
+    }, headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})

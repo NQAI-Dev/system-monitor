@@ -4,6 +4,7 @@ The live FastAPI app is exercised only via the helpers; psutil/os/subprocess
 are monkeypatched so the suite runs without touching real host state.
 """
 
+import json
 import os
 import sys
 from unittest.mock import MagicMock, patch
@@ -216,3 +217,76 @@ def test_index_serves_html():
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
     assert "System Monitor" in resp.text
+
+
+def test_status_page_and_api_hide_target_hosts(monkeypatch):
+    import asyncio
+
+    token = "a" * 43
+    monkeypatch.setenv("STATUS_PAGES", json.dumps([{
+        "name": "Private test",
+        "token": token,
+        "targets": [{"name": "Test server", "host": "192.0.2.10"}],
+    }]))
+    with patch("main.ping_host", new=lambda host: asyncio.sleep(0, result=17)):
+        from fastapi.testclient import TestClient
+
+        client = TestClient(main.app)
+        page = client.get("/status")
+        response = client.post("/api/status", json={"token": token})
+
+    assert page.status_code == 200
+    assert "Server status" in page.text
+    assert page.headers["cache-control"] == "no-store"
+    assert page.headers["referrer-policy"] == "no-referrer"
+    assert response.json()["servers"] == [
+        {"name": "Test server", "status": "online", "latency_ms": 17}
+    ]
+    assert response.json()["name"] == "Private test"
+    assert "192.0.2.10" not in response.text
+
+
+def test_status_api_rejects_unknown_tokens_and_get(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    token = "b" * 43
+    monkeypatch.setenv("STATUS_PAGES", json.dumps([{
+        "name": "Private", "token": token, "targets": [],
+    }]))
+    client = TestClient(main.app)
+
+    assert client.post("/api/status", json={"token": "wrong"}).status_code == 404
+    assert client.get("/api/status").status_code == 405
+
+
+def test_status_api_only_returns_targets_for_matching_token(monkeypatch):
+    import asyncio
+
+    pages = [
+        {"name": "One", "token": "c" * 43,
+         "targets": [{"name": "One server", "host": "one.example.com"}]},
+        {"name": "Two", "token": "d" * 43,
+         "targets": [{"name": "Two server", "host": "two.example.com"}]},
+    ]
+    monkeypatch.setenv("STATUS_PAGES", json.dumps(pages))
+    with patch("main.ping_host", new=lambda host: asyncio.sleep(0, result=None)):
+        from fastapi.testclient import TestClient
+
+        response = TestClient(main.app).post(
+            "/api/status", json={"token": "d" * 43}
+        )
+
+    assert response.json()["name"] == "Two"
+    assert [server["name"] for server in response.json()["servers"]] == ["Two server"]
+
+
+def test_status_page_rejects_short_configured_tokens(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("STATUS_PAGES", json.dumps([{
+        "name": "Weak", "token": "short", "targets": [],
+    }]))
+
+    response = TestClient(main.app).post("/api/status", json={"token": "e" * 43})
+
+    assert response.status_code == 500

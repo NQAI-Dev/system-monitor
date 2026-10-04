@@ -31,7 +31,7 @@ STATUS_PAGES='[{"name":"My servers","token":"REPLACE_WITH_RANDOM_TOKEN","targets
   uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-Generate a strong URL-safe token with `python3 -c 'import secrets; print(secrets.token_urlsafe(32))'` and replace the example value. Tokens must be at least 32 characters. Add another object to `STATUS_PAGES` for each independent private page. Share a link like `https://monitor.example/status#TOKEN`; the fragment is not sent in the HTTP request, and the page submits the token in a POST body. Anyone with the full link can view that page, so keep it private; rotate access by replacing its token. The API returns names and ping results, never target IPs or hostnames. Pages poll every 30 seconds. ICMP filtering can show a server as unavailable even when its application services are healthy.
+Generate a strong URL-safe token with `python3 -c 'import secrets; print(secrets.token_urlsafe(32))'` and replace the example value. Tokens must be at least 32 characters. Each page supports up to 100 targets; longer lists are rejected. Add another object to `STATUS_PAGES` for each independent private page. Share a link like `https://monitor.example/status#TOKEN`; the fragment is not sent in the HTTP request, and the page submits the token in a POST body. Anyone with the full link can view that page, so keep it private; rotate access by replacing its token. The API returns names and ping results, never target IPs or hostnames. Pages poll every 30 seconds. ICMP filtering can show a server as unavailable even when its application services are healthy.
 
 The host must have the `ping` utility installed (for example, package `iputils-ping` on Debian/Ubuntu); without it, targets appear unavailable.
 

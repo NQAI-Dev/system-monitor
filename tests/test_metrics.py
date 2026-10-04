@@ -290,3 +290,13 @@ def test_status_page_rejects_short_configured_tokens(monkeypatch):
     response = TestClient(main.app).post("/api/status", json={"token": "e" * 43})
 
     assert response.status_code == 500
+
+
+def test_status_page_rejects_too_many_targets():
+    targets = [
+        {"name": f"host-{i}", "host": f"host-{i}.example"}
+        for i in range(main.MAX_STATUS_TARGETS + 1)
+    ]
+
+    with pytest.raises(main.HTTPException, match="at most 100 targets"):
+        main.parse_status_targets(targets)

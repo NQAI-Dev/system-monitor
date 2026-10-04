@@ -12,6 +12,8 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 app = FastAPI()
 
+MAX_STATUS_TARGETS = 100
+
 
 def get_uptime():
     try:
@@ -293,6 +295,11 @@ def parse_status_targets(targets):
     if not isinstance(targets, list):
         raise HTTPException(
             status_code=500, detail="Each status page targets value must be a list"
+        )
+    if len(targets) > MAX_STATUS_TARGETS:
+        raise HTTPException(
+            status_code=500,
+            detail=f"A status page may have at most {MAX_STATUS_TARGETS} targets",
         )
     result = []
     for item in targets:

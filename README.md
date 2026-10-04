@@ -50,7 +50,7 @@ served through `fastapi.testclient.TestClient`.
 
 ```
 main.py            — FastAPI app + pure metric helpers
-tests/test_metrics.py — 11 unit/integration tests
+tests/test_metrics.py — unit/integration tests
 ```
 
 ## Helpers (importable from `main`)

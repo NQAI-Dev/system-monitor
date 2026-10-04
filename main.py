@@ -5,6 +5,7 @@ import re
 import secrets
 import subprocess
 import time
+from typing import Annotated
 
 import psutil
 from fastapi import Body, FastAPI, HTTPException
@@ -400,7 +401,7 @@ def status_page():
 
 
 @app.post("/api/status")
-async def status_api(payload: dict = Body(...)):
+async def status_api(payload: Annotated[dict, Body()]):
     token = payload.get("token")
     if not isinstance(token, str) or not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", token):
         raise HTTPException(status_code=404, detail="Status page not found")

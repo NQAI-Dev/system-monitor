@@ -154,6 +154,7 @@ HTML = """<!DOCTYPE html>
   .subtitle { color: #555; font-size: 0.85em; margin-bottom: 24px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
   .card { background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 10px; padding: 18px; }
+  .card.full { min-width: 0; overflow-x: auto; }
   .card h2 { color: #a78bfa; font-size: 0.78em; margin-bottom: 14px; text-transform: uppercase; letter-spacing: 1.5px; }
   .bar-wrap { background: #0f0f1a; border-radius: 4px; height: 10px; margin: 5px 0 10px; overflow: hidden; }
   .bar { height: 100%; border-radius: 4px; transition: width 0.6s ease; }
@@ -198,13 +199,16 @@ function fmt(b) {
   if (b < 1073741824) return (b/1048576).toFixed(1) + ' MB';
   return (b/1073741824).toFixed(2) + ' GB';
 }
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
 function bar(pct, cls) {
   const extra = pct > 85 ? ' bar-crit' : pct > 65 ? ' bar-warn' : '';
   return `<div class="bar-wrap"><div class="bar ${cls}${extra}" style="width:${Math.min(pct,100)}%"></div></div>`;
 }
 function badge(sub) {
   const c = sub==='running' ? 'running' : sub==='failed' ? 'failed' : 'other';
-  return `<span class="badge ${c}">${sub}</span>`;
+  return `<span class="badge ${c}">${escapeHtml(sub)}</span>`;
 }
 async function refresh() {
   try {
@@ -234,13 +238,13 @@ async function refresh() {
       `<div class="stat-row"><span>Load 1 / 5 / 15 min</span><span class="val">${d.load_average.map(x=>x.toFixed(2)).join(' / ')}</span></div>`;
 
     document.getElementById('disks').innerHTML = '<table><tr><th>Device</th><th>Mount</th><th>FS</th><th>Total</th><th>Used</th><th>Free</th><th>Usage</th></tr>' +
-      d.disks.map(k => `<tr><td>${k.device}</td><td>${k.mountpoint}</td><td>${k.fstype}</td><td>${fmt(k.total)}</td><td>${fmt(k.used)}</td><td>${fmt(k.free)}</td><td><div class="bar-wrap" style="width:90px;display:inline-block;vertical-align:middle"><div class="bar bar-disk" style="width:${k.percent}%"></div></div> ${k.percent}%</td></tr>`).join('') + '</table>';
+      d.disks.map(k => `<tr><td>${escapeHtml(k.device)}</td><td>${escapeHtml(k.mountpoint)}</td><td>${escapeHtml(k.fstype)}</td><td>${fmt(k.total)}</td><td>${fmt(k.used)}</td><td>${fmt(k.free)}</td><td><div class="bar-wrap" style="width:90px;display:inline-block;vertical-align:middle"><div class="bar bar-disk" style="width:${k.percent}%"></div></div> ${escapeHtml(k.percent)}%</td></tr>`).join('') + '</table>';
 
     document.getElementById('net').innerHTML = '<table><tr><th>Interface</th><th>IPv4</th><th>IPv6</th><th>↓ Received</th><th>↑ Sent</th></tr>' +
-      d.network.map(n => `<tr><td>${n.interface}</td><td>${n.ipv4||'—'}</td><td style="font-size:0.8em;color:#555">${(n.ipv6||'').substring(0,28)||'—'}</td><td>${fmt(n.bytes_recv)}</td><td>${fmt(n.bytes_sent)}</td></tr>`).join('') + '</table>';
+      d.network.map(n => `<tr><td>${escapeHtml(n.interface)}</td><td>${escapeHtml(n.ipv4||'—')}</td><td style="font-size:0.8em;color:#555">${escapeHtml((n.ipv6||'').substring(0,28)||'—')}</td><td>${fmt(n.bytes_recv)}</td><td>${fmt(n.bytes_sent)}</td></tr>`).join('') + '</table>';
 
     document.getElementById('svc').innerHTML = '<table><tr><th>Unit</th><th>Status</th><th>Active</th><th>Description</th></tr>' +
-      d.services.map(s => `<tr><td>${s.unit}</td><td>${badge(s.sub)}</td><td>${s.active}</td><td style="color:#666">${s.description}</td></tr>`).join('') + '</table>';
+      d.services.map(s => `<tr><td>${escapeHtml(s.unit)}</td><td>${badge(s.sub)}</td><td>${escapeHtml(s.active)}</td><td style="color:#666">${escapeHtml(s.description)}</td></tr>`).join('') + '</table>';
 
     document.getElementById('ts').textContent = 'Last updated: ' + new Date().toLocaleTimeString();
   } catch(e) {
